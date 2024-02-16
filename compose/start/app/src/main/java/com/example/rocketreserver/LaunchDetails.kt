@@ -1,6 +1,5 @@
 package com.example.rocketreserver
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,22 +14,68 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import com.apollographql.apollo3.api.Error
+import com.apollographql.apollo3.exception.ApolloException
+import com.example.rocketreserver.LaunchDetailsState.ApplicationError
+import com.example.rocketreserver.LaunchDetailsState.Loading
+import com.example.rocketreserver.LaunchDetailsState.ProtocolError
+import com.example.rocketreserver.LaunchDetailsState.Success
+import com.example.rocketreserver.R.drawable
+
+private sealed interface LaunchDetailsState {
+    object Loading : LaunchDetailsState
+    data class ProtocolError(val exception: ApolloException) : LaunchDetailsState
+    data class ApplicationError(val errors: List<Error>) : LaunchDetailsState
+    data class Success(val data: LaunchDetailsQuery.Data) : LaunchDetailsState
+}
 
 @Composable
-fun LaunchDetails(launchId: String) {
+fun LaunchDetails(launchId: String, navigateToLogin: () -> Unit) {
+    var state by remember { mutableStateOf<LaunchDetailsState>(Loading) }
+    LaunchedEffect(Unit) {
+        state = try {
+            val response = apolloClient.query(LaunchDetailsQuery(launchId)).execute()
+            if (response.hasErrors()) {
+                ApplicationError(response.errors!!)
+            } else {
+                Success(response.data!!)
+            }
+        } catch (e: ApolloException) {
+            ProtocolError(e)
+        }
+    }
+
+    when (val s = state) {
+        Loading -> Loading()
+        is ProtocolError -> ErrorMessage("Oh no... A protocol error happened: ${s.exception.message}")
+        is ApplicationError -> ErrorMessage(s.errors[0].message)
+        is Success -> LaunchDetails(s.data, navigateToLogin)
+    }
+}
+
+@Composable
+private fun LaunchDetails(data: LaunchDetailsQuery.Data, navigateToLogin: () -> Unit) {
     Column(
         modifier = Modifier.padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // Mission patch
-            Image(
+            AsyncImage(
                 modifier = Modifier.size(160.dp, 160.dp),
-                painter = painterResource(R.drawable.ic_placeholder),
+                model = data.launch?.mission?.missionPatch,
+                placeholder = painterResource(drawable.ic_placeholder),
+                error = painterResource(drawable.ic_placeholder),
                 contentDescription = "Mission patch"
             )
 
@@ -40,21 +85,21 @@ fun LaunchDetails(launchId: String) {
                 // Mission name
                 Text(
                     style = MaterialTheme.typography.headlineMedium,
-                    text = "Launch $launchId"
+                    text = data.launch?.mission?.name ?: "",
                 )
 
                 // Rocket name
                 Text(
                     modifier = Modifier.padding(top = 8.dp),
                     style = MaterialTheme.typography.headlineSmall,
-                    text = "Rocket name",
+                    text = data.launch?.rocket?.name?.let { "🚀 $it" } ?: "",
                 )
 
                 // Site
                 Text(
                     modifier = Modifier.padding(top = 8.dp),
                     style = MaterialTheme.typography.titleMedium,
-                    text = "Site..."
+                    text = data.launch?.site ?: "",
                 )
             }
         }
@@ -64,11 +109,33 @@ fun LaunchDetails(launchId: String) {
             modifier = Modifier
                 .padding(top = 32.dp)
                 .fillMaxWidth(),
-            onClick = { /*TODO*/ }
+            onClick = {
+                onBookButtonClick(
+                    launchId = data.launch?.id ?: "",
+                    isBooked = data.launch?.isBooked == true,
+                    navigateToLogin = navigateToLogin
+                )
+            }
         ) {
             Text(text = "Book now")
         }
     }
+
+}
+
+private fun onBookButtonClick(launchId: String, isBooked: Boolean, navigateToLogin: () -> Unit): Boolean {
+    if (TokenRepository.getToken() == null) {
+        navigateToLogin()
+        return false
+    }
+
+    if (isBooked) {
+
+    } else {
+
+    }
+
+    return false
 }
 
 @Composable
@@ -97,5 +164,5 @@ private fun SmallLoading() {
 @Preview(showBackground = true)
 @Composable
 private fun LaunchDetailsPreview() {
-    LaunchDetails(launchId = "42")
+    LaunchDetails(launchId = "42", navigateToLogin = {})
 }
